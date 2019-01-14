@@ -31,6 +31,8 @@ import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
+import static org.hamcrest.Matchers.contains;
+
 
 public class RowNumberWindowFunctionTest extends WindowFunctionTest {
 
@@ -43,6 +45,8 @@ public class RowNumberWindowFunctionTest extends WindowFunctionTest {
         //
         Object[] expected = new Object[] {1, 2, 3, 4};
 
-        assertEvaluate("row_number() over(order by a)", input, expected);
+        assertEvaluate("row_number() over(order by  a)",
+            input,
+            contains(expected));
     }
 }

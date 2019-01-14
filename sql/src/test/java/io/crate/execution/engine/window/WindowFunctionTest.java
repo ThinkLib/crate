@@ -22,7 +22,6 @@
 
 package io.crate.execution.engine.window;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import io.crate.analyze.relations.AnalyzedRelation;
 import io.crate.analyze.relations.DocTableRelation;
@@ -41,10 +40,9 @@ import io.crate.metadata.table.TestingTableInfo;
 import io.crate.sql.tree.QualifiedName;
 import io.crate.testing.SqlExpressions;
 import io.crate.testing.TestingBatchIterators;
-import io.crate.types.ArrayType;
 import io.crate.types.DataTypes;
-import io.crate.types.SetType;
 import org.elasticsearch.common.breaker.NoopCircuitBreaker;
+import org.hamcrest.Matcher;
 import org.junit.Before;
 
 import java.util.ArrayList;
@@ -54,9 +52,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.instanceOf;
-import static org.hamcrest.core.Is.is;
 
 
 class WindowFunctionTest {
@@ -86,13 +82,9 @@ class WindowFunctionTest {
     }
 
 
-    private void performInputAndOutputSanityChecks(Map<String, List<Literal>> inputValueMap, Object[] expectedValues) {
+    private void performInputSanityChecks(Map<String, List<Literal>> inputValueMap) {
         if (inputValueMap == null || inputValueMap.isEmpty()) {
             throw new IllegalArgumentException("Input is required");
-        }
-
-        if (expectedValues == null || expectedValues.length == 0) {
-            throw new IllegalArgumentException("Expected output is required");
         }
 
         List<Integer> inputSizes = inputValueMap.values()
@@ -105,16 +97,13 @@ class WindowFunctionTest {
         if (inputSizes.size() != 1) {
             throw new IllegalArgumentException("Input lists need to be of equal size");
         }
-
-        if (expectedValues.length != inputSizes.get(0)) {
-            throw new IllegalArgumentException("Expected value list need to be of equal size wrt the input");
-        }
     }
 
-    protected void assertEvaluate(String functionExpression,
-                                  Map<String, List<Literal>> inputValueMap,
-                                  Object[] expectedValues) {
-        performInputAndOutputSanityChecks(inputValueMap, expectedValues);
+    @SuppressWarnings("unchecked")
+    protected <T> void assertEvaluate(String functionExpression,
+                                      Map<String, List<Literal>> inputValueMap,
+                                      Matcher<T> expectedValue) {
+        performInputSanityChecks(inputValueMap);
 
         Symbol functionSymbol = sqlExpressions.asSymbol(functionExpression);
         functionSymbol = sqlExpressions.normalize(functionSymbol);
@@ -146,6 +135,6 @@ class WindowFunctionTest {
             actualResult.add(iterator.currentElement().get(0));
         }
 
-        assertThat(actualResult, contains(expectedValues));
+        assertThat((T) actualResult, expectedValue);
     }
 }
