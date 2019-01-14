@@ -106,45 +106,48 @@ class WindowFunctionTest {
     }
 
 
-    private void assertInputAndExpectedSize(Map<String, List<Literal>> inputValueMap, Object[] expectedValues) {
-        assertThat("No Input Provided", inputValueMap.isEmpty(), is(false));
+    private void performInputAndOutputSanityChecks(Map<String, List<Literal>> inputValueMap, Object[] expectedValues) {
+        if (inputValueMap == null || inputValueMap.isEmpty()) {
+            throw new IllegalArgumentException("Input is required");
+        }
+
+        if (expectedValues == null || expectedValues.length == 0) {
+            throw new IllegalArgumentException("Expected output is required");
+        }
 
         List<Integer> inputSizes = inputValueMap.values()
             .stream()
-            .map(l -> l.size())
+            .map(List::size)
             .distinct()
             .collect(Collectors.toList()
             );
-        assertThat("Input Lists need to be of equal size",
-            inputSizes.size(),
-            is(1));
-        assertThat("Expected Values need to be of equal size wrt the Input",
-            expectedValues.length,
-            is(inputSizes.get(0)));
 
+        if (inputSizes.size() != 1) {
+            throw new IllegalArgumentException("Input lists need to be of equal size");
+        }
+
+        if (expectedValues.length != inputSizes.get(0)) {
+            throw new IllegalArgumentException("Expected value list need to be of equal size wrt the input");
+        }
     }
 
     protected void assertEvaluate(String functionExpression,
-                               Map<String, List<Literal>> inputValueMap,
-                               Object[] expectedValues) {
-        // pre-asserts
-        assertInputAndExpectedSize(inputValueMap, expectedValues);
+                                  Map<String, List<Literal>> inputValueMap,
+                                  Object[] expectedValues) {
+        performInputAndOutputSanityChecks(inputValueMap, expectedValues);
 
-        // parse input and analyze
         Symbol functionSymbol = sqlExpressions.asSymbol(functionExpression);
         functionSymbol = sqlExpressions.normalize(functionSymbol);
         assertThat(functionSymbol, instanceOf(io.crate.expression.symbol.WindowFunction.class));
 
         io.crate.expression.symbol.WindowFunction function = (io.crate.expression.symbol.WindowFunction) functionSymbol;
 
-        // assert function arguments and types and
+        // assert function arguments and types
         // TBD
 
-        // get function implementation
         FunctionImplementation impl = functions.getQualified(function.info().ident());
         WindowFunction windowFunction = (WindowFunction) impl;
 
-        // iterator setup
         WindowBatchIterator iterator = new WindowBatchIterator(
             function.windowDefinition(),
             Collections.emptyList(),
@@ -158,13 +161,11 @@ class WindowFunctionTest {
             new int[] {0}
         );
 
-        // consume input and produce output
         List<Object> actualResult = new ArrayList<>();
         while (iterator.moveNext()) {
             actualResult.add(iterator.currentElement().get(0));
         }
 
-        // assert output
         assertThat(actualResult, contains(expectedValues));
     }
 }
