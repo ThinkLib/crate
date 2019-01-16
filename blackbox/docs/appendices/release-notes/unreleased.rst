@@ -42,6 +42,9 @@ None
 Changes
 =======
 
+- Implemented the ``DROP ANALYZER`` statement to support removal of custom
+  analyzer definitions from the cluster.
+
 - Added support for the ``last_value`` window function as an enterprise
   feature.
 
