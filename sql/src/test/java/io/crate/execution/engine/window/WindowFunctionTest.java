@@ -23,12 +23,27 @@
 package io.crate.execution.engine.window;
 
 import com.google.common.collect.ImmutableMap;
+ import io.crate.analyze.OrderBy;
+import io.crate.analyze.WindowDefinition;
 import io.crate.analyze.relations.AnalyzedRelation;
 import io.crate.analyze.relations.DocTableRelation;
+import io.crate.auth.user.User;
 import io.crate.breaker.RamAccountingContext;
+import io.crate.data.InMemoryBatchIterator;
+import io.crate.data.Input;
+import io.crate.data.Row;
+import io.crate.data.RowN;
+import io.crate.execution.dsl.projection.builder.InputColumns;
+import io.crate.execution.engine.collect.CollectExpression;
+import io.crate.execution.engine.collect.InputCollectExpression;
 import io.crate.expression.InputFactory;
+import io.crate.expression.scalar.AbstractScalarFunctionsTest;
+import io.crate.expression.symbol.FieldReplacer;
+import io.crate.expression.symbol.Function;
+import io.crate.expression.symbol.InputColumn;
 import io.crate.expression.symbol.Literal;
 import io.crate.expression.symbol.Symbol;
+import io.crate.metadata.ColumnIdent;
 import io.crate.metadata.CoordinatorTxnCtx;
 import io.crate.metadata.FunctionImplementation;
 import io.crate.metadata.Functions;
@@ -40,23 +55,30 @@ import io.crate.metadata.table.TestingTableInfo;
 import io.crate.sql.tree.QualifiedName;
 import io.crate.testing.SqlExpressions;
 import io.crate.testing.TestingBatchIterators;
+import io.crate.types.DataType;
 import io.crate.types.DataTypes;
 import org.elasticsearch.common.breaker.NoopCircuitBreaker;
+import org.elasticsearch.common.inject.AbstractModule;
 import org.hamcrest.Matcher;
 import org.junit.Before;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import static io.crate.data.SentinelRow.SENTINEL;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.instanceOf;
 
 
-class WindowFunctionTest {
+public class WindowFunctionTest {
 
+    private AbstractModule[] additionalModules;
     private SqlExpressions sqlExpressions;
     private Functions functions;
     private Map<QualifiedName, AnalyzedRelation> tableSources;
@@ -65,6 +87,10 @@ class WindowFunctionTest {
 
     private final RamAccountingContext RAM_ACCOUNTING_CONTEXT =
         new RamAccountingContext("dummy", new NoopCircuitBreaker("dummy"));
+
+    public WindowFunctionTest(AbstractModule... additionalModules) {
+        this.additionalModules = additionalModules;
+    }
 
     @Before
     public void prepareFunctions() throws Exception {
@@ -76,13 +102,17 @@ class WindowFunctionTest {
             .build();
         DocTableRelation tableRelation = new DocTableRelation(tableInfo);
         tableSources = ImmutableMap.of(new QualifiedName("users"), tableRelation);
-        sqlExpressions = new SqlExpressions(tableSources);
+        sqlExpressions = new SqlExpressions(tableSources,
+            tableRelation,
+            null,
+            User.CRATE_USER,
+            additionalModules);
         functions = sqlExpressions.functions();
         inputFactory = new InputFactory(functions);
     }
 
 
-    private void performInputSanityChecks(Map<String, List<Literal>> inputValueMap) {
+    private void performInputSanityChecks(Map<String, List<Literal<?>>> inputValueMap) {
         if (inputValueMap == null || inputValueMap.isEmpty()) {
             throw new IllegalArgumentException("Input is required");
         }
@@ -101,33 +131,48 @@ class WindowFunctionTest {
 
     @SuppressWarnings("unchecked")
     protected <T> void assertEvaluate(String functionExpression,
-                                      Map<String, List<Literal>> inputValueMap,
-                                      Matcher<T> expectedValue) {
-        performInputSanityChecks(inputValueMap);
+                                      Matcher<T> expectedValue,
+                                      Map<ColumnIdent, Integer> positionInRowByColumn,
+                                      int[] orderByIndices,
+                                      Row... inputRows) {
+        // performInputSanityChecks(inputValueMap);
 
-        Symbol functionSymbol = sqlExpressions.asSymbol(functionExpression);
-        functionSymbol = sqlExpressions.normalize(functionSymbol);
-        assertThat(functionSymbol, instanceOf(io.crate.expression.symbol.WindowFunction.class));
+        Symbol normalizedFunctionSymbol = sqlExpressions.normalize(sqlExpressions.asSymbol(functionExpression));
+        assertThat(normalizedFunctionSymbol, instanceOf(io.crate.expression.symbol.WindowFunction.class));
 
-        io.crate.expression.symbol.WindowFunction function = (io.crate.expression.symbol.WindowFunction) functionSymbol;
 
-        // assert function arguments and types
-        // TBD
+        InputFactory.Context<InputCollectExpression> ctx =
+            inputFactory.ctxForRefs(txnCtx, r -> new InputCollectExpression(positionInRowByColumn.get(r.column())));
+        //ctx.add(normalizedFunctionSymbol);
+        io.crate.expression.symbol.WindowFunction windowFunctionSymbol =
+            (io.crate.expression.symbol.WindowFunction) normalizedFunctionSymbol;
 
-        FunctionImplementation impl = functions.getQualified(function.info().ident());
-        WindowFunction windowFunction = (WindowFunction) impl;
+        List<Symbol> allInputSymbols = new ArrayList<>();
+        allInputSymbols.addAll(windowFunctionSymbol.arguments());
+        allInputSymbols.addAll(windowFunctionSymbol.windowDefinition().partitions());
+        OrderBy orderBy = windowFunctionSymbol.windowDefinition().orderBy();
+        if (orderBy != null) {
+            allInputSymbols.addAll(orderBy.orderBySymbols());
+        }
+        //ctx.add(allInputSymbols);
+        Input[] windowFunctionInputs = allInputSymbols.stream()
+            .map(ctx::add)
+            .toArray(Input[]::new);
+
+        FunctionImplementation impl = functions.getQualified(windowFunctionSymbol.info().ident());
+        WindowFunction windowFunctionImpl = (WindowFunction) impl;
 
         WindowBatchIterator iterator = new WindowBatchIterator(
-            function.windowDefinition(),
+            windowFunctionSymbol.windowDefinition(),
             Collections.emptyList(),
             Collections.emptyList(),
-            // tmp - this needs to be set from inputValueMap
-            TestingBatchIterators.range(1, 5),
-            //
-            Collections.singletonList(windowFunction),
-            Collections.singletonList(windowFunction.info().returnType()),
+            InMemoryBatchIterator.of(Arrays.asList(inputRows), SENTINEL),
+            Collections.singletonList(windowFunctionImpl),
+            ctx.expressions(),
+            Collections.singletonList(windowFunctionImpl.info().returnType()),
             RAM_ACCOUNTING_CONTEXT,
-            new int[] {0}
+            orderByIndices,
+            windowFunctionInputs
         );
 
         List<Object> actualResult = new ArrayList<>();

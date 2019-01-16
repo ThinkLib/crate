@@ -23,13 +23,17 @@
 package io.crate.expression;
 
 import com.google.common.base.Joiner;
+import io.crate.analyze.OrderBy;
 import io.crate.data.Input;
 import io.crate.exceptions.UnsupportedFeatureException;
+import io.crate.execution.engine.collect.CollectExpression;
+import io.crate.execution.engine.collect.InputCollectExpression;
 import io.crate.expression.symbol.DynamicReference;
 import io.crate.expression.symbol.Function;
 import io.crate.expression.symbol.Literal;
 import io.crate.expression.symbol.Symbol;
 import io.crate.expression.symbol.SymbolVisitor;
+import io.crate.expression.symbol.WindowFunction;
 import io.crate.expression.symbol.format.SymbolFormatter;
 import io.crate.metadata.FunctionIdent;
 import io.crate.metadata.FunctionImplementation;
@@ -37,6 +41,7 @@ import io.crate.metadata.TransactionContext;
 import io.crate.metadata.Functions;
 import io.crate.metadata.Scalar;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -73,6 +78,43 @@ public class BaseImplementationSymbolVisitor<C> extends SymbolVisitor<C, Input<?
                 )
             );
         }
+    }
+
+    @Override
+    public Input<?> visitWindowFunction(WindowFunction function, C context) {
+        return null;
+        /*
+        FunctionIdent ident = function.info().ident();
+        final FunctionImplementation functionImplementation = functions.getQualified(ident);
+        if (functionImplementation instanceof io.crate.execution.engine.window.WindowFunction) {
+
+            List<Symbol> allInputSymbols = new ArrayList<>();
+            allInputSymbols.addAll(function.arguments());
+            allInputSymbols.addAll(function.windowDefinition().partitions());
+            OrderBy orderBy = function.windowDefinition().orderBy();
+            if (orderBy != null) {
+                allInputSymbols.addAll(orderBy.orderBySymbols());
+            }
+            Input[] inputs = new Input[allInputSymbols.size()];
+
+            int idx = 0;
+            for (Symbol symbol : allInputSymbols) {
+                inputs[idx++] = process(symbol, context);
+            }
+
+            // what should I return here?
+            return null;
+        } else {
+            throw new UnsupportedFeatureException(
+                String.format(
+                    Locale.ENGLISH,
+                    "Function %s(%s) is not a window function.",
+                    ident.name(),
+                    Joiner.on(", ").join(ident.argumentTypes())
+                )
+            );
+        }
+        */
     }
 
     @Override

@@ -22,14 +22,11 @@
 
 package io.crate.execution.engine.window;
 
-import io.crate.expression.symbol.Literal;
+import io.crate.data.RowN;
+import io.crate.metadata.ColumnIdent;
 import org.junit.Test;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
+import java.util.Collections;
 
 import static org.hamcrest.Matchers.contains;
 
@@ -38,15 +35,16 @@ public class RowNumberWindowFunctionTest extends WindowFunctionTest {
 
     @Test
     public void testRowNumberFunction() throws Exception {
-        Map<String, List<Literal>> input = new HashMap<>();
-        // note: currently input is hardcoded in evaluation
-        // however the intention is to be provided using this map
-        input.put("a", IntStream.range(1, 5).boxed().map(n -> Literal.of(n)).collect(Collectors.toList()));
-        //
         Object[] expected = new Object[] {1, 2, 3, 4};
 
-        assertEvaluate("row_number() over(order by  a)",
-            input,
-            contains(expected));
+        assertEvaluate("row_number() over(order by a)",
+            contains(expected),
+            Collections.singletonMap(new ColumnIdent("a"), 0),
+            new int[] {0},
+            new RowN(new Object[] {4}),
+            new RowN(new Object[] {3}),
+            new RowN(new Object[] {2}),
+            new RowN(new Object[] {1})
+            );
     }
 }
