@@ -332,7 +332,7 @@ public class BlobIntegrationTest extends BlobHttpIntegrationTest {
         String blobData = String.format(Locale.ENGLISH, "{\"content\": \"%s\"}", StringUtils.repeat("a", 1024 * 64));
         httpPut.setEntity(new StringEntity(blobData, ContentType.APPLICATION_JSON));
         CloseableHttpResponse res = httpClient.execute(httpPut);
-        assertThat(EntityUtils.toString(res.getEntity()), containsString("Incorrect HTTP method for uri"));
+        assertThat(EntityUtils.toString(res.getEntity()), containsString("no handler found for uri"));
     }
 
     @Test
